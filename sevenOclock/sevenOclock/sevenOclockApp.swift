@@ -11,7 +11,8 @@ import SwiftUI
 struct sevenOclockApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainView()
+                .preferredColorScheme(.light)
         }
     }
 }
