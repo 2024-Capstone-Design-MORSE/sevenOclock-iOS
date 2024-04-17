@@ -9,15 +9,17 @@ import SwiftUI
 
 struct AddFoodView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.managedObjectContext) var managedObjectContext
     
-    @State var foodList: [Food] = []
+    @State var foodList: [TemporaryFood] = []
+    @State var isShowingToast = false
     
     var body: some View {
         NavigationView {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     ForEach($foodList, id: \.self) { $food in
-                        FoodInputCard(food: $food, list: $foodList)
+                        FoodInputCard(food: food, list: $foodList)
                             .font(.suite(.bold, size: 15))
                             .padding(.horizontal, 20)
                             .padding(.bottom, 20)
@@ -26,8 +28,9 @@ struct AddFoodView: View {
                 .padding(.vertical, 25)
             }
             .onAppear {
-                // TODO: Replace dummy data
-                foodList.append(Food.dummyData2)
+                if foodList.isEmpty {
+                    foodList.append(TemporaryFood(id: UUID()))
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -45,8 +48,14 @@ struct AddFoodView: View {
                     Text("완료")
                         .font(.suite(.bold, size: 16))
                         .onTapGesture {
-                            // TODO: Save input information
-                            dismiss()
+                            if foodList.map({ $0.name }).contains("") {
+                                isShowingToast.toggle()
+                            } else {
+                                for food in foodList {
+                                    addFood(data: food)
+                                }
+                                dismiss()
+                            }
                         }
                 }
             }
@@ -56,11 +65,11 @@ struct AddFoodView: View {
     }
     
     struct FoodInputCard: View {
-        @Binding var food: Food
-        @Binding var list: [Food]
-        @State var category = "육류"
-        @State var preservation = "냉장"
+        @StateObject var food: TemporaryFood
+        @Binding var list: [TemporaryFood]
         
+        @State var isTypingFinished = true
+
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -70,14 +79,13 @@ struct AddFoodView: View {
                         .font(.system(size: 18, weight: .regular))
                         .padding(.bottom, 5)
                         .onTapGesture {
-                            // TODO: Remove this element
                             list = list.filter { $0.id != food.id }
                         }
                 }
                 
                 HStack(spacing: 12) {
                     Text("이름")
-                    MyTextField(text: $food.name)
+                    MyTextField(text: $food.name, isFinished: $isTypingFinished)
                 }
                 
                 HStack(spacing: 12) {
@@ -99,7 +107,8 @@ struct AddFoodView: View {
                 
                 HStack(spacing: 12) {
                     Text("분류")
-                    SelectionBar(selections: Category.casesStringArray(), selected: $category)
+                    SelectionBar(selections: Category.casesStringArray(), selected: $food.category)
+                    SelectionBar(selections: Category.fromRawValue(rawValue: food.category)!.getSubcategories(), selected: $food.subcategory)
                 }
                 
                 myDivider
@@ -118,15 +127,16 @@ struct AddFoodView: View {
                 
                 HStack(spacing: 12) {
                     Text("저장 방법")
-                    SelectionBar(selections: Preservation.casesStringArray(), selected: $preservation)
+                    SelectionBar(selections: Preservation.casesStringArray(), selected: $food.preservation)
                 }
-                .padding(.top, 10)
-                .padding(.bottom, 10)
             }
             .padding(.horizontal, 20)
             .padding(.top, 15)
             .padding(.bottom, 20)
             .background(RoundedRectangle(cornerRadius: /*@START_MENU_TOKEN@*/25.0/*@END_MENU_TOKEN@*/).foregroundStyle(.lightBlue))
+            .onChange(of: food.category) { category in
+                food.subcategory = Category.fromRawValue(rawValue: category)?.getSubcategories().first ?? ""
+            }
         }
         
         var myDivider: some View {
@@ -140,7 +150,7 @@ struct AddFoodView: View {
         @Binding var text: String
         
         @FocusState private var isFocused: Bool
-        @State var isSearching = false
+        @Binding var isFinished: Bool
         
         var body: some View {
             ZStack(alignment: .leading) {
@@ -153,20 +163,20 @@ struct AddFoodView: View {
                     .frame(height: 34)
                     .foregroundStyle(.grey1)
                 
+                if text.isEmpty {
+                    Text("식품 이름")
+                        .padding(.leading, 15)
+                        .opacity(0.5)
+                }
+                
                 HStack {
                     ZStack(alignment: .leading) {
                         TextField("", text: $text) { startedEditing in
                             if startedEditing {
                                 isFocused = true
-                                withAnimation {
-                                    isSearching = true
-                                }
                             }
                         } onCommit: {
                             isFocused = false
-                            withAnimation {
-                                isSearching = false
-                            }
                         }
                         .focused($isFocused)
                         .foregroundStyle(.grey0)
@@ -179,7 +189,6 @@ struct AddFoodView: View {
                                 text = ""
                                 isFocused = false
                                 withAnimation {
-                                    isSearching = false
                                     UIApplication.shared.dismissKeyboard()
                                 }
                             }
@@ -189,10 +198,32 @@ struct AddFoodView: View {
             }
             .foregroundStyle(.grey0)
             .font(.suite(.regular, size: 15))
+            .onChange(of: isFocused) { _ in
+                isFinished = !isFocused
+            }
         }
     }
-}
-
-#Preview {
-    AddFoodView(foodList: [Food.dummyData, Food.dummyData1])
+    
+    private func saveContext() {
+        do {
+            try managedObjectContext.save()
+        } catch {
+            print("Error saving managed object context: \(error)")
+        }
+    }
+    
+    private func addFood(data: TemporaryFood) {
+        let newFood = Food(context: managedObjectContext)
+        
+        newFood.id = data.id
+        newFood.name = data.name
+        newFood.count = Int64(data.count)
+        newFood.category = data.category
+        newFood.subcategory = data.subcategory
+        newFood.usebyDate = data.usebyDate
+        newFood.preservation = data.preservation
+        newFood.enrollDate = Date()
+        
+        saveContext()
+    }
 }

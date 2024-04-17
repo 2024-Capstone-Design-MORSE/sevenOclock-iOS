@@ -8,12 +8,19 @@
 import SwiftUI
 
 struct ChartView: View {
+    @FetchRequest(entity: Food.entity(), sortDescriptors: []) var foods: FetchedResults<Food>
+    
     @State private var title = "식품 유형"
     
-    @State private var categorySlices: [(Double, Color)] = []
-    @State private var dateSlices: [(Double, Color)] = []
+    @State private var categorySlices: [(String, Double, Color)] = []
+    @State private var dateSlices: [(String, Double, Color)] = []
     
-    @State private var currentSlices: [(Double, Color)] = []
+    @State private var currentSlices: [(String, Double, Color)] = []
+    
+    @State var isShowingSheet = false
+    @State var selectedList = [Food]()
+    
+    let colours: [Color] = [.red, .orange, .yellow, .green, .blue, .indigo, .purple, .black.opacity(0.15), .black.opacity(0.3), .black.opacity(0.45), .black.opacity(0.6), .black.opacity(0.75), .black.opacity(0.9), .black]
     
     var body: some View {
         NavigationView {
@@ -32,6 +39,9 @@ struct ChartView: View {
                 }
                 .padding(.horizontal, 20)
             }
+            .sheet(isPresented: $isShowingSheet) {
+                FoodListView(foods: $selectedList)
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("냉장고 분석")
@@ -46,8 +56,10 @@ struct ChartView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear {
-            categorySlices = [(2, .red), (1, .orange), (5, .yellow), (3, .green), (6, .blue), (4, .indigo)]
-            dateSlices = [(2, .green), (3, .orange), (4, .red)]
+            title = "식품 유형"
+            
+            getCategorySlices()
+            getDateSlices()
             
             currentSlices = categorySlices
         }
@@ -150,7 +162,7 @@ struct ChartView: View {
     var chart: some View {
         VStack(spacing: 0) {
             ZStack {
-                Pie(slices: currentSlices)
+                Pie(slices: currentSlices.map { ($0.1, $0.2) })
                 .padding(.horizontal, 75)
                 
                 Circle()
@@ -160,13 +172,61 @@ struct ChartView: View {
             .padding(.vertical, 45)
             
             VStack(spacing: 10) {
-                ForEach(currentSlices, id: \.self.1) { slice in
-                    DetailRow(colour: slice.1, title: "육류", percentage: Int(slice.0), count: 2)
+                ForEach(currentSlices, id: \.self.0) { slice in
+                    DetailRow(colour: slice.2, title: slice.0, percentage: Int((slice.1 / currentSlices.reduce(0) { $0 + $1.1 }) * 100), count: Int(slice.1))
+                        .onTapGesture {
+                            Task {
+                                if title == "식품 유형" {
+                                    selectedList = foods.filter { $0.category == slice.0 }
+                                } else {
+                                    if slice.0 == "3일 이하" {
+                                        selectedList = foods.filter { ($0.usebyDate?.daysLeft())! <= 3 }
+                                    } else if slice.0 == "7일 미만" {
+                                        selectedList = foods.filter { ($0.usebyDate?.daysLeft())! < 7 && ($0.usebyDate?.daysLeft())! > 3 }
+                                    } else {
+                                        selectedList = foods.filter { ($0.usebyDate?.daysLeft())! >= 7 }
+                                    }
+                                }
+
+                                isShowingSheet.toggle()
+                            }
+                        }
                 }
             }
         }
         .padding(.bottom, 50)
         .background(RoundedRectangle(cornerRadius: 10).foregroundStyle(.grey2))
+    }
+    
+    private func getCategorySlices() {
+        var colourIndex = 0
+        categorySlices = []
+        
+        for category in Category.casesStringArray() {
+            let count = foods.filter { $0.category == category }.count
+            if count > 0 {
+                categorySlices.append((category, Double(count), colours[colourIndex]))
+                colourIndex += 1;
+            }
+        }
+    }
+    
+    private func getDateSlices() {
+        dateSlices = []
+        
+        let redArray = foods.filter { ($0.usebyDate?.daysLeft())! <= 3 }
+        let orangeArray = foods.filter { ($0.usebyDate?.daysLeft())! < 7 && ($0.usebyDate?.daysLeft())! > 3 }
+        let greenArray = foods.filter { ($0.usebyDate?.daysLeft())! >= 7 }
+        
+        if redArray.count > 0 {
+            dateSlices.append(("3일 이하", Double(redArray.count), .red))
+        }
+        if orangeArray.count > 0 {
+            dateSlices.append(("7일 미만", Double(orangeArray.count), .orange))
+        }
+        if redArray.count > 0 {
+            dateSlices.append(("7일 이상", Double(greenArray.count), .green))
+        }
     }
 }
 

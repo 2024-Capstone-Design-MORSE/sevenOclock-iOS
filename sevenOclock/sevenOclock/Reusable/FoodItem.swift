@@ -14,20 +14,26 @@ struct FoodItem: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             VStack(spacing: 0) {
-                Image("Sample")
+                Image(Category.fromRawValue(rawValue: item.category ?? "기타")?.imageName() ?? "others")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 70)
-                    .padding(.bottom, 10)
-                
-                Text("\(item.name) \(item.count)")
-                    .font(.suite(.medium, size: 13))
-                    .foregroundStyle(.black)
+                    .frame(width: 70, height: 70)
+                    .padding(.top, 10)
                     .padding(.bottom, 3)
                 
                 HStack(spacing: 0) {
+                    Text("\(item.name ?? "")")
+                        .lineLimit(1)
+                    
+                    Text(" \(item.count)")
+                }
+                .font(.suite(.medium, size: 13))
+                .foregroundStyle(.black)
+                .padding(.bottom, 3)
+                
+                HStack(spacing: 0) {
                     Text(date.formattedString(format: "YYYY.MM.dd"))
-                        .foregroundStyle(Int(date.daysLeft())! > 3 ? .gray : .red)
+                        .foregroundStyle(date.daysLeft() > 3 ? .gray : .red)
                     Text(" 까지")
                 }
                     
@@ -40,24 +46,29 @@ struct FoodItem: View {
             DayTag(date: date)
                 .padding(7)
         }
-        
     }
     
     struct DayTag: View {
         let date: Date
         
         var body: some View {
-            Text("D-\(date.daysLeft())")
+            Text(date.daysLeft() < 0 ? "D+\(date.daysLeft()*(-1))" : "D-\(date.daysLeft())")
                 .font(.suite(.bold, size: 12))
                 .foregroundStyle(.white)
                 .padding(.vertical, 5)
                 .padding(.horizontal, 8)
-                .background(RoundedRectangle(cornerRadius: 10.0).frame(height: 20).foregroundStyle(Int(date.daysLeft())! > 3 ? .gray : .tagRed))
+                .background(RoundedRectangle(cornerRadius: 10.0).frame(height: 20).foregroundStyle(properColour()))
                 .opacity(0.8)
         }
+        
+        private func properColour() -> Color {
+            if date.daysLeft() >= 7 {
+                return .green
+            } else if date.daysLeft() <= 3 {
+                return .red
+            } else {
+                return .orange
+            }
+        }
     }
-}
-
-#Preview {
-    FoodItem(item: Food.dummyData, date: Date())
 }
