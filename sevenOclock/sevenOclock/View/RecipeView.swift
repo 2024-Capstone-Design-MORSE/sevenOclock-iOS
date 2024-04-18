@@ -8,13 +8,16 @@
 import SwiftUI
 
 struct RecipeView: View {
+    @Environment(\.managedObjectContext) var managedObjectContext
+    @FetchRequest(entity: Food.entity(), sortDescriptors: [NSSortDescriptor(keyPath: \Food.usebyDate, ascending: true)]) var foods: FetchedResults<Food>
+    
     @State private var searchTitle = ""
     @State private var isDateTagSelected = false
-    @State private var selectedSortOption = "냉장고 일치 순"
+    
     @State private var isShowingWebView = false
     @State private var selectedURL = ""
     
-    @State private var recipes: [Recipe] = Recipe.dummyData
+    @StateObject private var viewModel = RecipeViewModel()
     
     @State private var tags: [String] = []
     
@@ -40,7 +43,7 @@ struct RecipeView: View {
                     HStack {
                         Spacer()
                         
-                        SelectionBar(selections: RecipeSortOption.allCasesStringArray(), selected: $selectedSortOption)
+                        SelectionBar(selections: RecipeSortOption.allCasesStringArray(), selected: $viewModel.selectedSortOption)
                     }
                     .padding(.horizontal, 20)
                     
@@ -73,6 +76,29 @@ struct RecipeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: selectedURL) { _ in
                 print(selectedURL)
+            }
+        }
+        .task {
+            try? await viewModel.fetchRecipes()
+        }
+        .onChange(of: viewModel.selectedSortOption) { _ in
+            Task {
+                viewModel.emptyRecipes()
+                try? await viewModel.fetchRecipes()
+            }
+        }
+        .onChange(of: isDateTagSelected) { newValue in
+            Task {
+                viewModel.updateFilters(foods: newValue ? Array(foods) : nil, searchTags: tags)
+                viewModel.emptyRecipes()
+                try? await viewModel.fetchRecipes()
+            }
+        }
+        .onChange(of: tags.count) { _ in
+            Task {
+                viewModel.updateFilters(foods: Array(foods), searchTags: tags)
+                viewModel.emptyRecipes()
+                try? await viewModel.fetchRecipes()
             }
         }
     }
@@ -117,15 +143,26 @@ struct RecipeView: View {
     }
     
     var recipeList: some View {
-        VStack(spacing: 15) {
-            ForEach(recipes, id: \.id) { recipe in
-                RecipeCard(recipe: recipe)
-                    .onTapGesture {
-                        Task {
-                            selectedURL = recipe.link
-                            isShowingWebView.toggle()
+        LazyVStack(spacing: 15) {
+            ForEach(viewModel.recipes, id: \.ID) { recipe in
+                VStack {
+                    RecipeCard(recipe: recipe, missingIngredients: getMissingIngredients(ingredients: recipe.ingredients))
+                        .onTapGesture {
+                            Task {
+                                selectedURL = recipe.link
+                                isShowingWebView.toggle()
+                            }
                         }
+                    
+                    if recipe.ID == viewModel.recipes.last?.ID {
+                        ProgressView()
+                            .onAppear {
+                                Task {
+                                    try await viewModel.fetchRecipes()
+                                }
+                            }
                     }
+                }
             }
         }
         .padding(.horizontal, 20)
@@ -133,6 +170,7 @@ struct RecipeView: View {
     
     struct RecipeCard: View {
         let recipe: Recipe
+        let missingIngredients: [String]
         
         var body: some View {
             HStack(alignment: .bottom, spacing: 10) {
@@ -178,14 +216,16 @@ struct RecipeView: View {
                     HStack(spacing: 5) {
                         Spacer()
                         
-                        Image(systemName: "xmark.circle.fill")
+                        if missingIngredients.count > 0 {
+                            Image(systemName: "xmark.circle.fill")
                             
-                        Text("옥수수, 베이컨")
-                            .lineLimit(1)
-                            .padding(4)
-                            .padding(.horizontal, 2)
-                            .background(RoundedRectangle(cornerRadius: 4).foregroundStyle(.white))
-                            .font(.suite(.regular, size: 13))
+                            Text(missingIngredients.joined(separator: ", "))
+                                .lineLimit(1)
+                                .padding(4)
+                                .padding(.horizontal, 2)
+                                .background(RoundedRectangle(cornerRadius: 4).foregroundStyle(.white))
+                                .font(.suite(.regular, size: 13))
+                        }
                     }
                     .foregroundStyle(.recipeOrange)
                     .padding(.top, 10)
@@ -205,20 +245,31 @@ struct RecipeView: View {
                     .frame(width: 36, height: 36)
                     .opacity(/*@START_MENU_TOKEN@*/0.8/*@END_MENU_TOKEN@*/)
                 
-                Circle()
-                    .trim(from: 0.0, to: CGFloat(Double(recipe.similarity ?? 0) * 0.01))
-                    .foregroundStyle(.circleOrange)
-                    .frame(width: 32, height: 32)
-                    .rotationEffect(.degrees(-90))
+                if recipe.ingredients.count > 0 && missingIngredients.count != recipe.ingredients.count {
+                    Circle()
+                        .trim(from: 0.0, to: 1 - Double(missingIngredients.count) / Double(recipe.ingredients.count))
+                        .foregroundStyle(.circleOrange)
+                        .frame(width: 32, height: 32)
+                        .rotationEffect(.degrees(-90))
+                }
                 
                 Circle()
                     .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
                 
-                Text("3 / \(recipe.ingredients.count)")
+                Text("\(recipe.ingredients.count - missingIngredients.count) / \(recipe.ingredients.count)")
                     .font(.suite(.bold, size: 11))
             }
             .padding(5)
+        }
+    }
+    
+    func getMissingIngredients(ingredients: [String]) -> [String] {
+        let subcategories = Array(Set(foods.map { $0.subcategory }))
+        return ingredients.filter { ingredient in
+            return !subcategories.contains { subcategory in
+                return ingredient.contains(subcategory ?? "N/A")
+            }
         }
     }
 }
